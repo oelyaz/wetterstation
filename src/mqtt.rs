@@ -86,19 +86,19 @@ pub async fn mqtt_task(stack: embassy_net::Stack<'static>) {
 
             match incoming_reading {
                 sensors::SensorReading::Light { lux } => {
-                    topic_str = "balkon/licht";
+                    topic_str = "wetterstation/balkon/licht";
                     write!(&mut payload_buf, "Light: {:.1} lx", lux).unwrap();
                 },
                 sensors::SensorReading::Climate { temperature, pressure, humidity } => {
-                    topic_str = "balkon/klima";
+                    topic_str = "wetterstation/balkon/klima";
                     write!(&mut payload_buf, "Temp: {:.1}C, Hum: {:.1}%, Press: {:.1}hPa", temperature, humidity, pressure).unwrap();
                 },
                 sensors::SensorReading::Gas { co2 } => {
-                    topic_str = "balkon/gas";
+                    topic_str = "wetterstation/balkon/gas";
                     write!(&mut payload_buf, "{:.1}C", co2).unwrap();
                 },
                 sensors::SensorReading::WindSpeed { speed } => {
-                    topic_str = "balkon/wind";
+                    topic_str = "wetterstation/balkon/wind";
                     write!(&mut payload_buf, "{:.1}m/s", speed).unwrap();
                 }
             };

@@ -119,7 +119,7 @@ impl I2cSensor for BME280 {
         // calculate physical data
         let (temp, tfine) = BME280::compensate_temperature(raw_temp as i32, &self.calibration);
         let press = BME280::compensate_pressure(raw_press as i32, tfine, &self.calibration);
-        let hum = BME280::compensate_pressure(raw_hum as i32, tfine, &self.calibration);
+        let hum = BME280::compensate_humidity(raw_hum as i32, tfine, &self.calibration);
 
         Ok(SensorReading::Climate {
             temperature: temp,

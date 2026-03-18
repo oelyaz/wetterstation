@@ -17,6 +17,7 @@ use esp_hal::{
     timer::timg::TimerGroup,
     Config,
 };
+use crate::sensors::{SensorReading, SENSOR_CHANNEL};
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
@@ -54,7 +55,10 @@ async fn main(spawner: Spawner) -> !{
                                        peripherals.GPIO9
     )).unwrap();
 
+    let mut cycles = 0;
     loop {
+        defmt::info!( "running since {} min ago", cycles );
+        cycles += 1;
         Timer::after(Duration::from_secs(60)).await;
     }
 }
