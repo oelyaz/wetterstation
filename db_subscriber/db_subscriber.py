@@ -1,62 +1,117 @@
-import paho.mqtt.client as mqtt
-import psycopg2
-import json
 import os
+import json
+import time
+from datetime import datetime
+import psycopg2
+import paho.mqtt.client as mqtt
+from paho.mqtt.enums import CallbackAPIVersion
 
-# Connect to PostgreSQL using environment variables from docker-compose
-conn = psycopg2.connect(
-    host=os.environ.get("PG_HOST", "postgres"),
-    database=os.environ.get("PG_DB", "weatherdb"),
-    user=os.environ.get("PG_USER", "weatheruser"),
-    password=os.environ.get("PG_PASSWORD", "weatherpassword")
-)
+# --- Configuration from Environment Variables ---
+MQTT_BROKER = os.getenv("MQTT_BROKER", "mosquitto")
+MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
+MQTT_TOPIC = os.getenv("MQTT_TOPIC", "wetterstation/balkon/#")
 
-def on_connect(client, userdata, flags, rc):
-    print("Connected to MQTT Broker!")
-    client.subscribe("wetterstation/balkon/#") # Subscribe to all balkon topics
+DB_HOST = os.getenv("DB_HOST", "postgres")
+DB_NAME = os.getenv("POSTGRES_DB", "weather_db")
+DB_USER = os.getenv("POSTGRES_USER", "weather_user")
+DB_PASS = os.getenv("POSTGRES_PASSWORD", "weather_pass")
+
+def get_db_connection():
+    """Connects to the PostgreSQL database, retrying until successful."""
+    while True:
+        try:
+            conn = psycopg2.connect(
+                host=DB_HOST,
+                database=DB_NAME,
+                user=DB_USER,
+                password=DB_PASS
+            )
+            print("Connected to PostgreSQL database!")
+            return conn
+        except psycopg2.OperationalError:
+            print("Database not ready yet. Retrying in 5 seconds...")
+            time.sleep(5)
+
+def init_db(conn):
+    """Creates the sensor_data table if it doesn't exist."""
+    with conn.cursor() as cursor:
+        cursor.execute("""
+CREATE TABLE IF NOT EXISTS climate (
+id SERIAL PRIMARY KEY,
+timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+celsius FLOAT,
+humidity_rh FLOAT,
+hpa FLOAT
+);
+CREATE TABLE IF NOT EXISTS brightness (
+id SERIAL PRIMARY KEY,
+timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+lux FLOAT
+);
+        """)
+        conn.commit()
+    print("Database tables are ready.")
+
+def on_connect(client, userdata, flags, reason_code, properties):
+    """Callback for when the client connects to the MQTT broker."""
+    print(f"Connected to MQTT Broker with result code: {reason_code}")
+    client.subscribe(MQTT_TOPIC)
+    print(f"Subscribed to topic: {MQTT_TOPIC}")
 
 def on_message(client, userdata, msg):
+    """Callback for when a PUBLISH message is received from the broker."""
     try:
-        # 1. Parse the JSON payload natively
-        payload = json.loads(msg.payload.decode('utf-8'))
-        cursor = conn.cursor()
+        # Decode the payload
+        payload = msg.payload.decode('utf-8')
+        data = json.loads(payload)
 
-        # 2. Route the data based on the topic
-        if msg.topic == "wetterstation/balkon/klima":
-            # .get() is safe; if a key is missing, it returns None (NULL in Postgres)
-            cursor.execute(
-                """
-INSERT INTO weather_metrics (temperature, humidity, pressure)
-VALUES (%s, %s, %s)
-                """,
-                (payload.get('temperature'), payload.get('humidity'), payload.get('pressure'))
-            )
+        print(f"Received from {msg.topic}: {data}")
 
-        elif msg.topic == "wetterstation/balkon/licht":
-            cursor.execute(
-                "INSERT INTO weather_metrics (light) VALUES (%s)",
-                (payload.get('light'),)
-            )
+        # Extract values (defaults to None/NULL if key is missing)
+        lux = data.get("lux")
+        celsius = data.get("celsius")
+        humidity = data.get("%rh")
+        hpa = data.get("hpa")
 
-        # 3. Commit the transaction
-        conn.commit()
-        cursor.close()
-        print(f"Saved data from {msg.topic}")
+        if lux:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+INSERT INTO brightness (timestamp, lux)
+VALUES (%s, %s)
+                    """, (datetime.now(), lux))
+                conn.commit()
+        else:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+    INSERT INTO climate (timestamp, celsius, humidity_rh, hpa)
+    VALUES (%s, %s, %s, %s)
+                    """, (datetime.now(), celsius, humidity, hpa))
+                conn.commit()
 
     except json.JSONDecodeError:
-        print("Received malformed JSON.")
+        print(f"Failed to decode JSON from payload: {msg.payload}")
     except Exception as e:
-        print(f"Database error: {e}")
-        conn.rollback() # Prevent broken transactions
+        print(f"Error processing message: {e}")
 
-# Setup MQTT Client
-client = mqtt.Client()
-client.on_connect = on_connect
-client.on_message = on_message
+if __name__ == "__main__":
+    # 1. Initialize Database Connection
+    conn = get_db_connection()
+    init_db(conn)
 
-# Connect to the broker specified in docker-compose
-broker_ip = os.environ.get("MQTT_BROKER", "10.0.1.107")
-client.connect(broker_ip, 1883, 60)
+    # 2. Setup MQTT Client
+    # We use VERSION2 as it is the standard for the modern paho-mqtt library
+    client = mqtt.Client(CallbackAPIVersion.VERSION2, "python_db_logger")
+    client.on_connect = on_connect
+    client.on_message = on_message
 
-# Keep running forever
-client.loop_forever()
+    # 3. Connect to MQTT Broker
+    while True:
+        try:
+            client.connect(MQTT_BROKER, MQTT_PORT, 60)
+            break
+        except ConnectionRefusedError:
+            print("MQTT Broker not ready yet. Retrying in 5 seconds...")
+            time.sleep(5)
+
+    # 4. Start the blocking network loop
+    client.loop_forever()
