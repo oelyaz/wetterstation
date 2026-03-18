@@ -16,7 +16,6 @@ use esp_hal::{
     interrupt::software::SoftwareInterruptControl,
     timer::timg::TimerGroup,
     Config,
-    i2c::master::I2c,
 };
 
 #[panic_handler]
@@ -37,26 +36,12 @@ async fn main(spawner: Spawner) -> !{
     let software_interrupts = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     esp_rtos::start(timg0.timer0, software_interrupts.software_interrupt0);
 
-    let (mut wifi_controller, stack, runner) = network::init_wifi_and_net(peripherals.WIFI);
+    let (wifi_controller, stack, runner) = network::init_wifi_and_net(peripherals.WIFI);
 
     // spawn network task
     spawner.spawn(network::net_task(runner)).unwrap();
-
     // connect to wifi
-    wifi_controller.start_async().await.unwrap();
-    defmt::info!("Attempting to connect to WiFi network: {}", config::SSID);
-    loop {
-        match wifi_controller.connect_async().await {
-            Ok(_) => {
-                defmt::info!("Wifi successfully connected!");
-                break;
-            }
-            Err(_e) => {
-                defmt::warn!("Connection failed: {} \n Retrying in 1 second...", _e);
-                Timer::after(Duration::from_secs(3)).await;
-            }
-        }
-    }
+    spawner.spawn(network::wifi_connection_task(wifi_controller)).unwrap();
 
     // wait for wifi stack
     while !stack.is_config_up() {
@@ -70,6 +55,6 @@ async fn main(spawner: Spawner) -> !{
     )).unwrap();
 
     loop {
-        Timer::after(Duration::from_secs(10)).await;
+        Timer::after(Duration::from_secs(60)).await;
     }
 }
