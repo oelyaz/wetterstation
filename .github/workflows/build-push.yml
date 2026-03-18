@@ -25,11 +25,11 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # 4. Build the image from the ./app folder and push it
+      # 4. Build the image from the folder and push it
       - name: Build and push the Python Worker image
         uses: docker/build-push-action@v5
         with:
-          context: ./app
+          context: ./db_subscriber
           push: true
           # This tags the image as: your_username/weather-worker:latest
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/weather-sub:latest
