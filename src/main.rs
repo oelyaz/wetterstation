@@ -17,7 +17,6 @@ use esp_hal::{
     timer::timg::TimerGroup,
     Config,
 };
-use crate::sensors::{SensorReading, SENSOR_CHANNEL};
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
