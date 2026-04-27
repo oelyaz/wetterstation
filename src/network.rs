@@ -3,9 +3,9 @@ use core::str::FromStr;
 use embassy_net::{
     Config as NetConfig, Ipv4Address, Ipv4Cidr, Runner, StackResources, StaticConfigV4,
 };
-use embassy_time::{Duration, Timer};
+use embassy_time::{with_timeout, Duration, Timer};
 use esp_hal::rng::Rng;
-use esp_radio::wifi::{self, ClientConfig as WifiClientConfig, ModeConfig, WifiDevice};
+use esp_radio::wifi::{self, ClientConfig as WifiClientConfig, ModeConfig, WifiDevice, WifiEvent};
 use static_cell::StaticCell;
 
 
@@ -76,22 +76,63 @@ pub fn init_wifi_and_net(
 #[embassy_executor::task]
 pub async fn wifi_connection_task(mut controller: wifi::WifiController<'static>) {
     defmt::info!("Starting WiFi connection task...");
-    controller.start_async().await.unwrap(); 
+
+    // Retry start_async instead of unwrapping; a transient radio init error
+    // shouldn't panic the whole device.
+    loop {
+        match controller.start_async().await {
+            Ok(()) => break,
+            Err(e) => {
+                defmt::error!("WiFi start failed: {:?}, retrying in 3s", defmt::Debug2Format(&e));
+                Timer::after(Duration::from_secs(3)).await;
+            }
+        }
+    }
 
     loop {
         match controller.connect_async().await {
             Ok(_) => {
                 defmt::info!("WiFi connected successfully!");
-
-                controller.wait_for_event(wifi::WifiEvent::StaDisconnected).await;
-                defmt::warn!("WiFi disconnected! Attempting to reconnect...");
-            },
+                supervise_connection(&mut controller).await;
+                defmt::warn!("WiFi link lost, attempting to reconnect...");
+            }
             Err(e) => {
-                defmt::error!("Failed to connect to WiFi: {:?}", e);
+                defmt::error!("Failed to connect to WiFi: {:?}", defmt::Debug2Format(&e));
             }
         }
 
-        // wait before next connection attempt
         Timer::after(Duration::from_secs(5)).await;
+    }
+}
+
+/// Watch the WiFi link until it dies. Returns once we've decided we're
+/// disconnected — either because StaDisconnected fired, or because periodic
+/// polling caught a silent drop the event subsystem missed.
+async fn supervise_connection(controller: &mut wifi::WifiController<'static>) {
+    const POLL: Duration = Duration::from_secs(30);
+
+    loop {
+        match with_timeout(POLL, controller.wait_for_event(WifiEvent::StaDisconnected)).await {
+            Ok(()) => {
+                defmt::warn!("StaDisconnected event received.");
+                return;
+            }
+            Err(_) => match controller.is_connected() {
+                Ok(true) => continue,
+                Ok(false) => {
+                    defmt::warn!("Link silently dead (is_connected=false), forcing reconnect.");
+                    let _ = controller.disconnect_async().await;
+                    return;
+                }
+                Err(e) => {
+                    defmt::warn!(
+                        "is_connected() error: {:?}, forcing reconnect.",
+                        defmt::Debug2Format(&e)
+                    );
+                    let _ = controller.disconnect_async().await;
+                    return;
+                }
+            },
+        }
     }
 }

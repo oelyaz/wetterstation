@@ -10,7 +10,7 @@ use bme280::BME280Builder;
 use embassy_time::{Duration, Timer};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
-use esp_hal::{i2c::master::{Config, I2c, }, peripherals::{GPIO8, GPIO9, I2C0}};
+use esp_hal::{i2c::master::{Config, I2c, }, peripherals::{GPIO22, GPIO23, I2C0}};
 
 
 pub static SENSOR_CHANNEL: Channel<CriticalSectionRawMutex, SensorReading, 2> = Channel::new();
@@ -22,8 +22,8 @@ const BH1750_ADDRESS: u8 = 0x23;
 #[embassy_executor::task]
 pub async fn sensor_task(
     i2c0: I2C0<'static>,
-    sda_pin: GPIO8<'static>,
-    scl_pin: GPIO9<'static>,
+    sda_pin: GPIO22<'static>,
+    scl_pin: GPIO23<'static>,
 ) {
     let mut i2c = I2c::new(i2c0, Config::default())
         .unwrap()
