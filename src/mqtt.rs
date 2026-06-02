@@ -2,7 +2,7 @@ use core::str::FromStr;
 use heapless::String;
 use core::fmt::Write;
 use embassy_net::{tcp::TcpSocket, Ipv4Address};
-use embassy_time::{Duration, Timer};
+use embassy_time::{with_timeout, Duration, Timer};
 use rust_mqtt::{
     buffer::AllocBuffer,
     client::{
@@ -19,6 +19,8 @@ use crate::sensors;
 
 static RX_BUFFER: StaticCell<[u8; 4096]> = StaticCell::new();
 static TX_BUFFER: StaticCell<[u8; 4096]> = StaticCell::new();
+
+const PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[embassy_executor::task]
 pub async fn mqtt_task(stack: embassy_net::Stack<'static>) {
@@ -116,12 +118,19 @@ pub async fn mqtt_task(stack: embassy_net::Stack<'static>) {
                 qos: QoS::AtMostOnce,
             };
 
-            if let Err(e) = client.publish(&publication_options, payload).await {
-                defmt::error!("MQTT Publish Failed! Connection lost. Error: {:?}", defmt::Debug2Format(&e));
-                break;
+            match with_timeout(PUBLISH_TIMEOUT, client.publish(&publication_options, payload)).await {
+                Ok(Ok(_)) => {
+                    defmt::info!("Published to MQTT: {} -> {}", topic_str, payload_buf.as_str());
+                }
+                Ok(Err(e)) => {
+                    defmt::error!("MQTT Publish Failed! Connection lost. Error: {:?}", defmt::Debug2Format(&e));
+                    break;
+                }
+                Err(_) => {
+                    defmt::error!("MQTT publish timed out after {}s, rebuilding connection.", PUBLISH_TIMEOUT.as_secs());
+                    break;
+                }
             }
-
-            defmt::info!("Published to MQTT: {} -> {}", topic_str, payload_buf.as_str());
         }
         Timer::after(Duration::from_secs(5)).await;
     }

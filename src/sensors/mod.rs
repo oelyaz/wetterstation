@@ -51,14 +51,19 @@ pub async fn sensor_task(
 
     loop {
         if let Ok(light_reading) = light_sensor.read_sensor(&mut i2c).await {
-            SENSOR_CHANNEL.send(light_reading).await;
-            defmt::info!("Sent light reading: {}", light_reading);
+            queue_reading(light_reading, "light");
         }
         if let Ok(climate_reading) = climate_sensor.read_sensor(&mut i2c).await {
-            SENSOR_CHANNEL.send(climate_reading).await;
-            defmt::info!("Sent climate reading: {}", climate_reading);
+            queue_reading(climate_reading, "climate");
         }
 
         Timer::after(Duration::from_secs(10)).await;
+    }
+}
+
+fn queue_reading(reading: SensorReading, label: &str) {
+    match SENSOR_CHANNEL.try_send(reading) {
+        Ok(()) => defmt::info!("Sent {} reading: {}", label, reading),
+        Err(_) => defmt::warn!("Sensor channel full, dropping {} reading", label),
     }
 }
