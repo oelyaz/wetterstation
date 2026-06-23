@@ -103,6 +103,10 @@ pub async fn mqtt_task(stack: embassy_net::Stack<'static>) {
                     topic_str = "wetterstation/balkon/wind";
                     write!(&mut payload_buf, "{{\"m/s\": {:.1}}}", speed).unwrap();
                 }
+                sensors::SensorReading::Battery { percent } => {
+                    topic_str = "wetterstation/balkon/akku";
+                    write!(&mut payload_buf, "{{\"percent\": {:.1}}}", percent).unwrap();
+                }
             };
 
             // publishing

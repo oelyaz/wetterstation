@@ -63,7 +63,9 @@ async fn main(spawner: Spawner) -> !{
     spawner.spawn(mqtt::mqtt_task(stack)).unwrap();
     spawner.spawn(sensors::sensor_task(peripherals.I2C0,
                                        peripherals.GPIO22,
-                                       peripherals.GPIO23
+                                       peripherals.GPIO23,
+                                       peripherals.ADC1,
+                                       peripherals.GPIO0
     )).unwrap();
 
     let mut ticks: u32 = 0;

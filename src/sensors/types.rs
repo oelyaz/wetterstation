@@ -9,6 +9,7 @@ pub enum SensorReading {
     Climate { temperature: f32, pressure: f32, humidity: f32 },
     Gas { co2: f32 },
     WindSpeed { speed: f32 },
+    Battery { percent: f32 },
 }
 
 #[derive(Debug, defmt::Format)]
